@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Console Inspector</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --border: #1e1e1e;
+    --accent: #00ff88;
+    --warn: #ffcc00;
+    --err: #ff4444;
+    --info: #44aaff;
+    --muted: #444;
+    --text: #e0e0e0;
+    --dim: #666;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,136,0.015) 2px, rgba(0,255,136,0.015) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 12px var(--accent); }
+    50% { opacity: 0.5; box-shadow: 0 0 4px var(--accent); }
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .badge-count {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+
+  .badge {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-weight: 700;
+    font-size: 10px;
+  }
+
+  .badge.log  { background: rgba(0,255,136,0.1); color: var(--accent); border: 1px solid rgba(0,255,136,0.2); }
+  .badge.warn { background: rgba(255,204,0,0.1); color: var(--warn);   border: 1px solid rgba(255,204,0,0.2); }
+  .badge.err  { background: rgba(255,68,68,0.1); color: var(--err);    border: 1px solid rgba(255,68,68,0.2); }
+  .badge.info { background: rgba(68,170,255,0.1); color: var(--info);  border: 1px solid rgba(68,170,255,0.2); }
+
+  .toolbar {
+    padding: 10px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    background: #0d0d0d;
+  }
+
+  .filter-btn {
+    padding: 4px 12px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .filter-btn:hover  { border-color: var(--muted); color: var(--text); }
+  .filter-btn.active.all  { border-color: var(--accent); color: var(--accent); background: rgba(0,255,136,0.06); }
+  .filter-btn.active.log  { border-color: var(--accent); color: var(--accent); background: rgba(0,255,136,0.06); }
+  .filter-btn.active.warn { border-color: var(--warn);   color: var(--warn);   background: rgba(255,204,0,0.06); }
+  .filter-btn.active.err  { border-color: var(--err);    color: var(--err);    background: rgba(255,68,68,0.06); }
+  .filter-btn.active.info { border-color: var(--info);   color: var(--info);   background: rgba(68,170,255,0.06); }
+
+  .clear-btn {
+    margin-left: auto;
+    padding: 4px 12px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,68,68,0.3);
+    background: transparent;
+    color: #ff6666;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .clear-btn:hover { background: rgba(255,68,68,0.08); border-color: var(--err); }
+
+  #log-container {
+    padding: 8px 0;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+  }
+
+  #log-container::-webkit-scrollbar { width: 4px; }
+  #log-container::-webkit-scrollbar-track { background: transparent; }
+  #log-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding: 6px 24px;
+    border-bottom: 1px solid transparent;
+    transition: background 0.1s;
+    animation: slideIn 0.15s ease;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-6px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .log-entry:hover { background: rgba(255,255,255,0.02); }
+
+  .log-entry.type-log   { border-left: 2px solid rgba(0,255,136,0.3); }
+  .log-entry.type-warn  { border-left: 2px solid rgba(255,204,0,0.5); background: rgba(255,204,0,0.02); }
+  .log-entry.type-error { border-left: 2px solid rgba(255,68,68,0.6); background: rgba(255,68,68,0.03); }
+  .log-entry.type-info  { border-left: 2px solid rgba(68,170,255,0.4); }
+
+  .entry-time {
+    color: var(--dim);
+    font-size: 10px;
+    width: 68px;
+    flex-shrink: 0;
+    padding-top: 2px;
+    user-select: none;
+  }
+
+  .entry-type {
+    width: 46px;
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding-top: 2px;
+    user-select: none;
+  }
+
+  .entry-type.log   { color: var(--accent); }
+  .entry-type.warn  { color: var(--warn); }
+  .entry-type.error { color: var(--err); }
+  .entry-type.info  { color: var(--info); }
+
+  .entry-msg {
+    flex: 1;
+    word-break: break-all;
+    white-space: pre-wrap;
+    color: var(--text);
+  }
+
+  .entry-msg .string { color: #a8d5b5; }
+  .entry-msg .number { color: #79b4e8; }
+  .entry-msg .boolean { color: #e8a76e; }
+  .entry-msg .null { color: #888; font-style: italic; }
+  .entry-msg .key { color: #c9a0dc; }
+  .entry-msg .bracket { color: #666; }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 24px;
+    color: var(--muted);
+    gap: 12px;
+    text-align: center;
+  }
+
+  .empty-state .icon {
+    font-size: 32px;
+    opacity: 0.3;
+  }
+
+  .empty-state p {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .count-label {
+    font-size: 10px;
+    color: var(--dim);
+    padding: 6px 24px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 1px;
+  }
+
+  /* copy on click */
+  .entry-msg { cursor: pointer; }
+  .entry-msg:active { opacity: 0.6; }
+
+  .copy-flash {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--accent);
+    color: #000;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 8px 16px;
+    border-radius: 3px;
+    animation: fadeFlash 1.2s ease forwards;
+    z-index: 9000;
+    pointer-events: none;
+  }
+
+  @keyframes fadeFlash {
+    0%   { opacity: 0; transform: translateY(8px); }
+    20%  { opacity: 1; transform: translateY(0); }
+    70%  { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-4px); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"></div>
+  <h1>Console Inspector</h1>
+  <div class="badge-count">
+    <span class="badge log"  id="cnt-log">0 LOG</span>
+    <span class="badge warn" id="cnt-warn">0 WARN</span>
+    <span class="badge err"  id="cnt-err">0 ERR</span>
+    <span class="badge info" id="cnt-info">0 INFO</span>
+  </div>
+</header>
+
+<div class="toolbar">
+  <button class="filter-btn active all" data-filter="all">All</button>
+  <button class="filter-btn log"  data-filter="log">Log</button>
+  <button class="filter-btn warn" data-filter="warn">Warn</button>
+  <button class="filter-btn err"  data-filter="error">Error</button>
+  <button class="filter-btn info" data-filter="info">Info</button>
+  <button class="clear-btn" id="clearBtn">Clear</button>
+</div>
+
+<div id="count-label" class="count-label" style="display:none"></div>
+<div id="log-container">
+  <div class="empty-state" id="empty">
+    <div class="icon">⬛</div>
+    <p>Waiting for console output...</p>
+  </div>
+</div>
+
+<script>
+const logs = [];
+let filter = 'all';
+const counts = { log: 0, warn: 0, error: 0, info: 0 };
+
+function formatTime(d) {
+  return d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+}
+
+function syntaxColor(val) {
+  if (typeof val === 'string') return `<span class="string">"${escHtml(val)}"</span>`;
+  if (typeof val === 'number') return `<span class="number">${val}</span>`;
+  if (typeof val === 'boolean') return `<span class="boolean">${val}</span>`;
+  if (val === null) return `<span class="null">null</span>`;
+  if (val === undefined) return `<span class="null">undefined</span>`;
+  if (val instanceof Error) return `<span class="string">${escHtml(val.stack || val.message)}</span>`;
+  if (typeof val === 'object') {
+    try {
+      const json = JSON.stringify(val, null, 2);
+      return escHtml(json)
+        .replace(/"([^"]+)":/g, '<span class="key">"$1"</span>:')
+        .replace(/: "([^"]*)"/g, ': <span class="string">"$1"</span>')
+        .replace(/: (\d+(\.\d+)?)/g, ': <span class="number">$1</span>')
+        .replace(/: (true|false)/g, ': <span class="boolean">$1</span>')
+        .replace(/: null/g, ': <span class="null">null</span>')
+        .replace(/[{}\[\]]/g, m => `<span class="bracket">${m}</span>`);
+    } catch(e) { return escHtml(String(val)); }
+  }
+  return escHtml(String(val));
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function formatArgs(args) {
+  return args.map(a => syntaxColor(a)).join(' ');
+}
+
+function addLog(type, args, time) {
+  const entry = { type, args, time: time || new Date(), raw: args.map(a => {
+    if (typeof a === 'object') { try { return JSON.stringify(a, null, 2); } catch(e) { return String(a); } }
+    return String(a);
+  }).join(' ') };
+  logs.push(entry);
+  counts[type] = (counts[type] || 0) + 1;
+  updateCounts();
+  renderEntry(entry);
+  updateEmpty();
+  updateCountLabel();
+}
+
+function updateCounts() {
+  document.getElementById('cnt-log').textContent  = counts.log   + ' LOG';
+  document.getElementById('cnt-warn').textContent = counts.warn  + ' WARN';
+  document.getElementById('cnt-err').textContent  = counts.error + ' ERR';
+  document.getElementById('cnt-info').textContent = counts.info  + ' INFO';
+}
+
+function renderEntry(entry) {
+  if (filter !== 'all' && entry.type !== filter) return;
+  const el = createEntryEl(entry);
+  const container = document.getElementById('log-container');
+  const empty = document.getElementById('empty');
+  if (empty) empty.style.display = 'none';
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+function createEntryEl(entry) {
+  const el = document.createElement('div');
+  el.className = `log-entry type-${entry.type}`;
+  el.innerHTML = `
+    <div class="entry-time">${formatTime(entry.time)}</div>
+    <div class="entry-type ${entry.type}">${entry.type.toUpperCase()}</div>
+    <div class="entry-msg">${formatArgs(entry.args)}</div>`;
+  // click to copy
+  el.querySelector('.entry-msg').addEventListener('click', () => {
+    navigator.clipboard.writeText(entry.raw).then(() => flash('COPIED'));
+  });
+  return el;
+}
+
+function flash(msg) {
+  const el = document.createElement('div');
+  el.className = 'copy-flash';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1300);
+}
+
+function updateEmpty() {
+  const visible = document.querySelectorAll('.log-entry').length;
+  const empty = document.getElementById('empty');
+  if (empty) empty.style.display = visible === 0 ? 'flex' : 'none';
+}
+
+function updateCountLabel() {
+  const label = document.getElementById('count-label');
+  const total = logs.length;
+  if (total === 0) { label.style.display = 'none'; return; }
+  label.style.display = 'block';
+  const shown = document.querySelectorAll('.log-entry').length;
+  label.textContent = filter === 'all'
+    ? `${total} entries`
+    : `${shown} of ${total} entries (filtered)`;
+}
+
+function rerender() {
+  const container = document.getElementById('log-container');
+  // remove all entries
+  container.querySelectorAll('.log-entry').forEach(e => e.remove());
+  logs.forEach(entry => {
+    if (filter === 'all' || entry.type === filter) {
+      container.appendChild(createEntryEl(entry));
+    }
+  });
+  updateEmpty();
+  updateCountLabel();
+  container.scrollTop = container.scrollHeight;
+}
+
+// Filter buttons
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    filter = btn.dataset.filter;
+    rerender();
+  });
+});
+
+// Clear
+document.getElementById('clearBtn').addEventListener('click', () => {
+  logs.length = 0;
+  counts.log = counts.warn = counts.error = counts.info = 0;
+  updateCounts();
+  document.getElementById('log-container').querySelectorAll('.log-entry').forEach(e => e.remove());
+  const empty = document.getElementById('empty');
+  if (empty) empty.style.display = 'flex';
+  updateCountLabel();
+});
+
+// Intercept console
+['log','warn','error','info'].forEach(type => {
+  const orig = console[type].bind(console);
+  console[type] = function(...args) {
+    orig(...args);
+    addLog(type, args);
+  };
+});
+
+// Catch unhandled errors
+window.addEventListener('error', e => {
+  addLog('error', [e.error || e.message], new Date());
+});
+window.addEventListener('unhandledrejection', e => {
+  addLog('error', ['Unhandled Promise:', e.reason], new Date());
+});
+
+// Initial message
+console.log('Console Inspector ready — all output will appear here');
+</script>
+</body>
+</html>
